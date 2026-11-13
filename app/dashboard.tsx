@@ -81,7 +81,7 @@ const watchLocation = async (callback: (coords: { latitude: number; longitude: n
     try {
     id = await backgroundGeolocation.addWatcher(
       {
-        backgroundMessage: 'Tracking your location while you are online',
+        backgroundMessage: 'You are online — ready for trip requests, orders and calls',
         backgroundTitle: 'Aletwende Driver',
         requestPermissions: true,
         stale: false,

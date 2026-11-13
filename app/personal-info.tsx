@@ -24,6 +24,7 @@ import {
   isAtLeast18YearsOld,
   passwordsMatch,
   isValidPassword,
+  getPasswordError,
 } from '@/utils/validation';
 import { createFirebaseUser } from '@/utils/firebase';
 import { uploadImageToCloudinary } from '@/utils/cloudinary';
@@ -160,7 +161,7 @@ export default function PersonalInfoPage() {
     if (!isValidPassword(password)) {
       setErrors((prev) => ({
         ...prev,
-        password: 'Password must be at least 6 characters',
+        password: getPasswordError(password),
       }));
       return;
     }
@@ -381,7 +382,8 @@ export default function PersonalInfoPage() {
             onChangeText={(text) => {
               setPassword(text);
               updateRegistrationData({ password: text });
-              setErrors((prev) => ({ ...prev, password: '' }));
+              // Show the missing rule in red while typing
+              setErrors((prev) => ({ ...prev, password: text ? getPasswordError(text) : '' }));
             }}
             placeholder="Enter your password"
             placeholderTextColor="#666"

@@ -1,6 +1,6 @@
 import '@/utils/polyfills';
 import { useEffect, useState, useRef } from 'react';
-import { Stack, usePathname, useRouter } from 'expo-router';
+import { Stack, usePathname } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Pressable, StyleSheet } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -162,7 +162,6 @@ export default function RootLayout() {
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [verificationStatus, setVerificationStatus] = useState<string | null>(null);
   const pathname = usePathname();
-  const router = useRouter();
   
   // Listen for authentication state changes
   useEffect(() => {
@@ -189,92 +188,47 @@ export default function RootLayout() {
     return () => unsubscribe();
   }, [currentUser?.uid]);
   
-  // After logout the auth screens replace the signed-in screens, but the URL can still be
-  // /dashboard (a blank screen). Send the driver back to the login page.
-  useEffect(() => {
-    if (!isAuthReady || currentUser) return;
-    if (pathname === '/' || pathname === '') return;
-    const loggedOutPages = ['/registration-terms', '/personal-info', '/personal-picture', '/step2', '/step3', '/cyclist-step', '/license-step', '/driver-license-instructions', '/selfie-with-license-instructions', '/id-step', '/ridesDelivery', '/vehicle-information', '/chooseLocation', '/application-submitted', '/forgot-password'];
-    if (loggedOutPages.includes(pathname)) return;
-    const timer = setTimeout(() => { try { router.replace('/'); } catch { /* ignore */ } }, 50);
-    return () => clearTimeout(timer);
-  }, [isAuthReady, currentUser, pathname]);
-
-  if (showSplash) {
-    return <SplashScreen onFinish={() => {
-      setShowSplash(false);
-    }} />;
-  }
-
-  // Determine if driver is authenticated - MUST have UID
+  // Keep the root navigator mounted across splash and auth transitions so redirects
+  // can never run before Expo Router has registered its navigation container.
   const driverUid = currentUser?.uid;
   const isAuthenticated = isAuthReady && !!driverUid;
 
-  // If NOT authenticated: render auth screens WITHOUT dispatch overlay
-  if (!isAuthenticated) {
-    return (
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <RegistrationProvider>
-          <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="index" />
-            <Stack.Screen name="registration-terms" />
-            <Stack.Screen name="personal-info" />
-            <Stack.Screen name="personal-picture" />
-            <Stack.Screen name="step2" />
-            <Stack.Screen name="step3" />
-            <Stack.Screen name="cyclist-step" />
-            <Stack.Screen name="license-step" />
-            <Stack.Screen name="driver-license-instructions" />
-            <Stack.Screen name="selfie-with-license-instructions" />
-            <Stack.Screen name="id-step" />
-            <Stack.Screen name="ridesDelivery" />
-            <Stack.Screen name="vehicle-information" />
-            <Stack.Screen name="chooseLocation" />
-            <Stack.Screen name="application-submitted" />
-            <Stack.Screen name="forgot-password" />
-            <Stack.Screen name="dashboard" options={{ gestureEnabled: false }} />
-            <Stack.Screen name="+not-found" />
-          </Stack>
-          <StatusBar style="light" />
-        </RegistrationProvider>
-      </GestureHandlerRootView>
-    );
-  }
-
-  // AUTHENTICATED: render with TripRequestProvider and GlobalTripRequestPanel
-  // The dispatch popup will ONLY appear here when driver is signed in
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <RegistrationProvider>
         <TripRequestProvider>
           <CallProvider>
-          <NativeCallsBoot />
-          <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="index" />
-            <Stack.Screen name="registration-terms" />
-            <Stack.Screen name="dashboard" options={{ gestureEnabled: false }} />
-            <Stack.Screen name="personal-info" />
-            <Stack.Screen name="personal-picture" />
-            <Stack.Screen name="step2" />
-            <Stack.Screen name="step3" />
-            <Stack.Screen name="cyclist-step" />
-            <Stack.Screen name="license-step" />
-            <Stack.Screen name="driver-license-instructions" />
-            <Stack.Screen name="selfie-with-license-instructions" />
-            <Stack.Screen name="id-step" />
-            <Stack.Screen name="ridesDelivery" />
-            <Stack.Screen name="vehicle-information" />
-            <Stack.Screen name="chooseLocation" />
-            <Stack.Screen name="application-submitted" />
-            <Stack.Screen name="forgot-password" />
-            <Stack.Screen name="+not-found" />
-          </Stack>
-          {/* Keep the RTDB listener mounted for fast resume, but only expose its effects on the approved driver's dashboard. */}
-          {isAuthenticated && verificationStatus === 'approved' && pathname === '/dashboard' && (
-            <GlobalTripRequestPanel />
-          )}
-          <CallOverlay />
-          <StatusBar style="light" />
+            <Stack screenOptions={{ headerShown: false }}>
+              <Stack.Screen name="index" />
+              <Stack.Screen name="registration-terms" />
+              <Stack.Screen name="dashboard" options={{ gestureEnabled: false }} />
+              <Stack.Screen name="personal-info" />
+              <Stack.Screen name="personal-picture" />
+              <Stack.Screen name="step2" />
+              <Stack.Screen name="step3" />
+              <Stack.Screen name="cyclist-step" />
+              <Stack.Screen name="license-step" />
+              <Stack.Screen name="driver-license-instructions" />
+              <Stack.Screen name="selfie-with-license-instructions" />
+              <Stack.Screen name="id-step" />
+              <Stack.Screen name="ridesDelivery" />
+              <Stack.Screen name="vehicle-information" />
+              <Stack.Screen name="chooseLocation" />
+              <Stack.Screen name="application-submitted" />
+              <Stack.Screen name="forgot-password" />
+              <Stack.Screen name="+not-found" />
+            </Stack>
+            {isAuthenticated && <NativeCallsBoot />}
+            {isAuthenticated && verificationStatus === 'approved' && pathname === '/dashboard' && (
+              <GlobalTripRequestPanel />
+            )}
+            {isAuthenticated && <CallOverlay />}
+            <StatusBar style="light" />
+            {showSplash && (
+              <GestureHandlerRootView style={StyleSheet.absoluteFill}>
+                <SplashScreen onFinish={() => setShowSplash(false)} />
+              </GestureHandlerRootView>
+            )}
           </CallProvider>
         </TripRequestProvider>
       </RegistrationProvider>

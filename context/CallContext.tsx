@@ -1,13 +1,14 @@
 'use client';
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform } from 'react-native';
-import { cancelCallNotification, callServiceStart, callServiceStop } from '@/utils/nativeCalls';
+import { cancelCallNotification, callServiceStart, callServiceStop, getCallPermissionStatus, isNative, requestNativeMicrophonePermission } from '@/utils/nativeCalls';
 import { auth, database } from '@/config/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { onValue, ref } from 'firebase/database';
 import ringtone from '@/assets/sounds/call.mp3';
 import { useAudioPlayer } from 'expo-audio';
 import { installWebAudioUnlock, playAlertSound, prepareAlertAudio, stopAlertSound } from '@/utils/audioAlerts';
+import { startRingback, stopRingback } from '@/utils/ringback';
 import type { CallCredentials } from '@/services/callApi';
 
 const service = Platform.OS === 'web' ? require('@/services/callService.web') : require('@/services/callService');
@@ -33,12 +34,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const leaveConnection = async () => { const active = connectionRef.current; connectionRef.current = null; if (active) await active.leave().catch(() => undefined); };
   const token = async () => { const user = auth.currentUser; if (!user) throw new Error('You must be signed in'); return user.getIdToken(); };
   const showEnded = (message: string) => { setEndedMessage(message); setCallState('ended'); setTimeout(() => { setCallState('idle'); setCallId(null); setEndedMessage(''); sessionCall.current = null; currentRef.current = null; sawCall.current = false; }, 2500); };
-  const join = async (data: Snapshot) => { const connection = await service.joinChannel({ appId: data.appId, token: data.token, channel: data.channel, uid: data.uid } as CallCredentials) as Connection; connectionRef.current = connection; setMicAvailable(connection.micAvailable ?? true); setMicError(connection.micError ?? null); };
+  const join = async (data: Snapshot) => { if (isNative()) { const st = await getCallPermissionStatus().catch(() => null); if (!st?.microphone) await Promise.race([requestNativeMicrophonePermission(), new Promise<void>((r) => setTimeout(r, 8000))]); } const connection = await service.joinChannel({ appId: data.appId, token: data.token, channel: data.channel, uid: data.uid } as CallCredentials) as Connection; connectionRef.current = connection; setMicAvailable(connection.micAvailable ?? true); setMicError(connection.micError ?? null); };
   const terminalMessage = (data: Snapshot) => { if (data.status === 'declined') return 'Call declined'; if (data.status === 'missed' || data.status === 'expired' || data.endReason === 'no_answer') return 'No answer'; if (data.endReason === 'trip_ended') return 'Trip ended'; if (data.endReason === 'cancelled' && !data.startedAt) return data.direction === 'incoming' ? 'Missed call' : 'Call cancelled'; const duration = data.durationSeconds ?? (data.startedAt && data.endedAt ? Math.max(0, Math.floor((data.endedAt - data.startedAt) / 1000)) : 0); return duration > 0 || data.startedAt ? `Call ended · ${formatTime(duration)}` : 'Call ended'; };
   const finish = async (message: string) => { cancelRingingNotification(currentRef.current?.callId); stopRingtone(); stopTimer(); setElapsedSeconds(0); await leaveConnection(); setIsMuted(false); setMicAvailable(true); setMicError(null); showEnded(message); };
   const endCall = async (reason?: string) => { if (endingRef.current) return; endingRef.current = true; const snapshot = currentRef.current; const wasInCall = callStateRef.current === 'in-call' || !!snapshot?.startedAt; const duration = elapsedRef.current; const callId = snapshot?.callId; if (callId) cancelRingingNotification(callId); try { if (callId) { try { await service.endCallApi(callId, await token(), reason); } catch {} } await finish(reason === 'no_answer' ? 'No answer' : wasInCall ? `Call ended · ${formatTime(duration)}` : 'Call cancelled'); } finally { endingRef.current = false; } };
   endCallRef.current = endCall;
 
+  useEffect(() => { if (Platform.OS !== 'web') return; if (callState === 'calling') startRingback(); else stopRingback(); return () => stopRingback(); }, [callState]);
   useEffect(() => { if (callState === 'in-call') void callServiceStart('Call in progress'); else if (callState === 'ended' || callState === 'idle') void callServiceStop(); }, [callState]);
   useEffect(() => () => { void callServiceStop(); }, []);
   useEffect(() => {

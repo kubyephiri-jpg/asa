@@ -114,6 +114,7 @@ export default function LoginPage() {
     >
       <View style={styles.overlay}>
         <ScrollView
+          style={styles.scrollFill}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
@@ -233,8 +234,6 @@ export default function LoginPage() {
 const styles = StyleSheet.create({
   background: {
     flex: 1,
-    width: width,
-    height: height,
   },
   overlay: {
     flex: 1,
@@ -242,18 +241,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  scrollFill: {
+    flex: 1,
+    alignSelf: 'stretch',
+  },
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 40,
-    paddingHorizontal: 20,
-    minHeight: height,
+    paddingVertical: 24,
+    paddingHorizontal: 24,
   },
   glassPanel: {
     borderRadius: 20,
     width: '100%',
-    maxWidth: 380,
+    maxWidth: 340,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
@@ -264,14 +266,14 @@ const styles = StyleSheet.create({
     elevation: 15,
   },
   glassPanelInner: {
-    padding: 28,
+    padding: 22,
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
   title: {
     fontSize: 28,
     fontWeight: '700',
     color: '#fff',
-    marginBottom: 28,
+    marginBottom: 20,
     textAlign: 'center',
     letterSpacing: 0.5,
   },

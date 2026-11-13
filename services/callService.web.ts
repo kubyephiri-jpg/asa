@@ -32,17 +32,48 @@ export async function joinChannel(credentials: CallCredentials, onRemoteAudio?: 
   };
 
   try {
+    const playRemote = (user: any) => {
+      try {
+        const track = user?.audioTrack;
+        if (!track) return;
+        track.setVolume?.(100);
+        Promise.resolve(track.play()).catch(() => undefined);
+      } catch {
+        // The remote track may be removed while a call is ending.
+      }
+    };
+    const playAllRemote = () => client.remoteUsers.forEach(playRemote);
+    // If the WebView blocked audio until a tap, start it on the next touch.
+    (AgoraRTC as any).onAutoplayFailed = () => {
+      const resume = () => { playAllRemote(); window.removeEventListener('touchstart', resume); window.removeEventListener('click', resume); };
+      window.addEventListener('touchstart', resume, { once: true });
+      window.addEventListener('click', resume, { once: true });
+    };
     client.on('user-published', async (user, mediaType) => {
-      await client.subscribe(user, mediaType);
+      try { await client.subscribe(user, mediaType); } catch (e) { console.warn('[calls] subscribe failed', e); return; }
       if (mediaType === 'audio') {
-        try {
-          Promise.resolve(user.audioTrack?.play()).catch(() => undefined);
-        } catch {
-          // The remote track may be removed while a call is ending.
-        }
+        playRemote(user);
+        setTimeout(() => playRemote(user), 1000);
         onRemoteAudio?.(user);
       }
     });
+    // Answering from the lock screen starts the call while the app is still hidden, which can give
+    // a silent microphone. Rebuild the microphone as soon as the app is visible.
+    const refreshMic = async () => {
+      try {
+        const current = microphone as IMicrophoneAudioTrack | null;
+        if (!current || !microphonePublished) return;
+        const raw = current.getMediaStreamTrack();
+        if (raw.readyState === 'ended' || raw.muted) {
+          await client.unpublish([current]).catch(() => undefined);
+          try { current.close(); } catch {}
+          microphone = await AgoraRTC.createMicrophoneAudioTrack();
+          await client.publish([microphone]);
+        }
+      } catch (e) { console.warn('[calls] mic refresh failed', e); }
+    };
+    const onVisible = () => { if (document.visibilityState === 'visible') { void refreshMic(); playAllRemote(); } };
+    document.addEventListener('visibilitychange', onVisible);
 
     let microphoneCreated = await createMicrophone();
     if (!microphoneCreated) {
@@ -65,10 +96,17 @@ export async function joinChannel(credentials: CallCredentials, onRemoteAudio?: 
       }
     }
 
+    for (const u of client.remoteUsers) {
+      if (u.hasAudio) { try { await client.subscribe(u, 'audio'); playRemote(u); } catch {} }
+    }
+    setTimeout(() => { void refreshMic(); playAllRemote(); }, 1500);
+    setTimeout(() => { void refreshMic(); playAllRemote(); }, 4000);
+
     return {
       get micAvailable() { return micAvailable; },
       get micError() { return micError; },
       leave: async () => {
+        document.removeEventListener('visibilitychange', onVisible);
         closeMicrophone();
         await client.leave();
       },

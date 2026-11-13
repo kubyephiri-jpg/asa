@@ -58,7 +58,15 @@ export function passwordsMatch(password: string, confirmPassword: string): boole
   return password === confirmPassword && password.length > 0;
 }
 
+// Returns a message for the FIRST rule that is not met, or '' when the password is good.
+export function getPasswordError(password: string): string {
+  if (password.length < 6) return 'Password must be at least 6 characters';
+  if (!/[A-Z]/.test(password)) return 'Password must contain at least one uppercase letter (A-Z)';
+  if (!/[^A-Za-z0-9\s]/.test(password)) return 'Password must contain at least one special character (e.g. ! @ # $ %)';
+  return '';
+}
+
 export function isValidPassword(password: string): boolean {
-  return password.length >= 6;
+  return getPasswordError(password) === '';
 }
 
