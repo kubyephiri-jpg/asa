@@ -42,6 +42,14 @@ export interface RegistrationData {
 
   vehicleCategory?: string;
 
+  bicycle: {
+    bicyclePhoto: string;
+    selfieWithBicycle: string;
+    color: string;
+    hasCourierBag: boolean;
+    frameType: string;
+  };
+
   operation: {
     place: string;
     available: boolean;
@@ -55,6 +63,7 @@ interface RegistrationContextType {
   updateLicense: (data: Partial<RegistrationData['license']>) => void;
   updateIdCard: (data: Partial<RegistrationData['idCard']>) => void;
   updateVehicle: (data: Partial<RegistrationData['vehicle']>) => void;
+  updateBicycle: (data: Partial<RegistrationData['bicycle']>) => void;
   updateOperation: (data: Partial<RegistrationData['operation']>) => void;
   currentStep: number;
   setCurrentStep: (step: number) => void;
@@ -106,6 +115,14 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
       carImage: '',
     },
 
+    bicycle: {
+      bicyclePhoto: '',
+      selfieWithBicycle: '',
+      color: '',
+      hasCourierBag: false,
+      frameType: '',
+    },
+
     operation: {
       place: '',
       available: false,
@@ -144,6 +161,13 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
     }));
   };
 
+  const updateBicycle = (data: Partial<RegistrationData['bicycle']>) => {
+    setRegistrationData(prev => ({
+      ...prev,
+      bicycle: { ...prev.bicycle, ...data },
+    }));
+  };
+
   const updateOperation = (data: Partial<RegistrationData['operation']>) => {
     setRegistrationData(prev => ({
       ...prev,
@@ -160,6 +184,7 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
         updateLicense,
         updateIdCard,
         updateVehicle,
+        updateBicycle,
         updateOperation,
         currentStep,
         setCurrentStep,

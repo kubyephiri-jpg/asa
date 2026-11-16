@@ -2,6 +2,7 @@
 import { router } from 'expo-router';
 import { ChevronLeft, Check } from 'lucide-react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as ImagePicker from 'expo-image-picker';
 import { useState, useRef } from 'react';
 import { useRegistration } from '@/context/RegistrationContext';
 
@@ -38,6 +39,30 @@ export default function PersonalPicturePage() {
     }
 
     setShowCamera(true);
+  };
+
+  const handleChooseFromGallery = async () => {
+    try {
+      if (Platform.OS !== 'web') {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission Required', 'Gallery permission is required to select an image.');
+          return;
+        }
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+      if (!result.canceled && result.assets?.[0]?.uri) {
+        setCapturedPhoto(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to select image. Please try again.');
+    }
   };
 
   const takePicture = async () => {
@@ -169,6 +194,9 @@ export default function PersonalPicturePage() {
         <TouchableOpacity style={styles.takeButton} onPress={handleTakePicture}>
           <Text style={styles.takeButtonText}>Take a new picture</Text>
         </TouchableOpacity>
+        <TouchableOpacity style={styles.galleryButton} onPress={handleChooseFromGallery}>
+          <Text style={styles.galleryButtonText}>Choose from gallery</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -247,6 +275,18 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 18,
     alignItems: 'center',
+  },
+  galleryButton: {
+    backgroundColor: '#3a3a3a',
+    borderRadius: 12,
+    padding: 18,
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  galleryButtonText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#fff',
   },
   takeButtonText: {
     fontSize: 18,

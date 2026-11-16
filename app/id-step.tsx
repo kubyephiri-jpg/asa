@@ -19,7 +19,7 @@ import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { uploadImageToCloudinary } from '@/utils/cloudinary';
 
 export default function IdStepPage() {
-  const { registrationData, updateIdCard, setCurrentStep, totalSteps } = useRegistration();
+  const { registrationData, updateIdCard, updateRegistrationData, setCurrentStep, totalSteps } = useRegistration();
 
   const [idFront, setIdFront] = useState<string | null>(null);
   const [idBack, setIdBack] = useState<string | null>(null);
@@ -27,6 +27,7 @@ export default function IdStepPage() {
   const [isUploading, setIsUploading] = useState(false);
 
   const [showInstructions, setShowInstructions] = useState<'front' | 'back' | null>(null);
+  const [isBicycle, setIsBicycle] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
@@ -174,21 +175,36 @@ export default function IdStepPage() {
 
       // Update Firestore with ID data and Cloudinary URLs using documents structure
       const driverRef = doc(firestore, 'drivers', uid);
-      await updateDoc(driverRef, {
-        'documents.idFront': idFrontUrl,
-        'documents.idBack': idBackUrl,
-        'documents.idNumber': idNumber.trim(),
-        registrationStep: 3,
-        updatedAt: serverTimestamp(),
-      });
-
-      updateIdCard({
-        idNumber: idNumber.trim(),
-        idImage: idFrontUrl,
-      });
-
-      setCurrentStep(4);
-      router.push('/license-step');
+      if (isBicycle) {
+        // Bicycle branch: no licence needed, go to the cyclist steps
+        await updateDoc(driverRef, {
+          'documents.idFront': idFrontUrl,
+          'documents.idBack': idBackUrl,
+          'documents.idNumber': idNumber.trim(),
+          'vehicle.vehicleCategory': 'bicycle',
+          'vehicle.type': 'Bicycle',
+          'vehicle.services': ['delivery', 'courier'],
+          'vehicle.verificationStatus': 'pending',
+          role: 'cyclist',
+          vehicleCategory: 'bicycle',
+          registrationStep: 3,
+          updatedAt: serverTimestamp(),
+        });
+        updateRegistrationData({ role: 'cyclist', vehicleCategory: 'bicycle' });
+        setCurrentStep(4);
+        router.push('/cyclist-step');
+      } else {
+        await updateDoc(driverRef, {
+          'documents.idFront': idFrontUrl,
+          'documents.idBack': idBackUrl,
+          'documents.idNumber': idNumber.trim(),
+          registrationStep: 3,
+          updatedAt: serverTimestamp(),
+        });
+        updateIdCard({ idNumber: idNumber.trim(), idImage: idFrontUrl });
+        setCurrentStep(4);
+        router.push('/license-step');
+      }
     } catch (error) {
       console.error('Error saving ID data:', error);
       Alert.alert('Error', 'Failed to save ID information. Please try again.');
@@ -363,6 +379,20 @@ export default function IdStepPage() {
             maxLength={11}
 />
   </View>
+
+  {/* Bicycle checkbox */}
+  <TouchableOpacity
+    style={styles.checkboxRow}
+    onPress={() => setIsBicycle(!isBicycle)}
+    activeOpacity={0.7}
+  >
+    <View style={[styles.checkbox, isBicycle && styles.checkboxChecked]}>
+      {isBicycle && <Text style={styles.checkboxTick}>✓</Text>}
+    </View>
+    <Text style={styles.checkboxLabel}>
+      I am registering a bicycle (no licence required)
+    </Text>
+  </TouchableOpacity>
 
   {/* Upload status indicator */}
   {isUploading && (
@@ -753,5 +783,36 @@ uploadButtonText: {
   uploadingText: {
     color: '#B19CD9',
     fontSize: 14,
+  },
+  checkboxRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+    gap: 12,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: '#B19CD9',
+    backgroundColor: '#3a3a3a',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkboxChecked: {
+    backgroundColor: '#B19CD9',
+    borderColor: '#B19CD9',
+  },
+  checkboxTick: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  checkboxLabel: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 15,
+    lineHeight: 22,
   },
 });
