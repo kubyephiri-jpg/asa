@@ -40,15 +40,17 @@ export default function LoginPage() {
 
       try {
         const driverSnapshot = await getDoc(doc(firestore, 'drivers', user.uid));
-        const verificationStatus = driverSnapshot.exists()
-          ? readVerificationStatus(driverSnapshot.data())
-          : null;
+        const driverData = driverSnapshot.exists() ? driverSnapshot.data() : null;
+        const verificationStatus = driverData ? readVerificationStatus(driverData) : null;
 
         if (verificationStatus === 'approved') {
           router.replace('/dashboard');
-        } else {
+        } else if (driverData?.registrationCompleted === true) {
+          // Registration finished, waiting for approval
           router.replace('/application-submitted');
         }
+        // Registration NOT finished: stay where we are. This login screen is still mounted under the
+        // registration screens, so redirecting here used to show the thank-you message on step 1.
       } catch (error) {
         console.error('[v0] Persisted session redirect failed:', error);
         router.replace('/dashboard');

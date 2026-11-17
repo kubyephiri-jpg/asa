@@ -208,6 +208,7 @@ export default function RootLayout() {
               <Stack.Screen name="step2" />
               <Stack.Screen name="step3" />
               <Stack.Screen name="cyclist-step" />
+              <Stack.Screen name="bicycle-submit" />
               <Stack.Screen name="license-step" />
               <Stack.Screen name="driver-license-instructions" />
               <Stack.Screen name="selfie-with-license-instructions" />

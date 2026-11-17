@@ -121,7 +121,7 @@ export default function BicycleSubmitPage() {
         </View>
 
         <View style={styles.serviceCard}>
-          <Text style={styles.serviceText}>Services: Delivery & Courier (auto-assigned)</Text>
+          <Text style={styles.serviceText}>Services: Delivery & Courier</Text>
         </View>
       </View>
 

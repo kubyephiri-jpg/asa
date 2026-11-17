@@ -184,7 +184,6 @@ export default function IdStepPage() {
           'vehicle.vehicleCategory': 'bicycle',
           'vehicle.type': 'Bicycle',
           'vehicle.services': ['delivery', 'courier'],
-          'vehicle.verificationStatus': 'pending',
           role: 'cyclist',
           vehicleCategory: 'bicycle',
           registrationStep: 3,
