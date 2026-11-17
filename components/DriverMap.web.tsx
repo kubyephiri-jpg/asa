@@ -105,6 +105,7 @@ export default function DriverMap({
   const currentRotationRef = useRef<number | null>(null);
   const smoothedHeadingRef = useRef<number | null>(null);
   const lastVehicleHeadingRef = useRef(0);
+  const routeProgressRef = useRef(0);
   const lastVehicleTypeRef = useRef<string | undefined>(undefined);
 
   // Map of active markers keyed by id
@@ -243,6 +244,7 @@ export default function DriverMap({
         const coords = decoded.map((p) => [p[1], p[0]]) as [number, number][];
         fullCoordsRef.current = coords;
         currentCoordsRef.current = coords;
+        routeProgressRef.current = 0;
 
         const data: GeoJSON.Feature = {
           type: 'Feature',
@@ -299,7 +301,21 @@ export default function DriverMap({
     if (!map || !vehiclePosition) return;
 
     const run = () => {
-      const { lat, lng, heading } = vehiclePosition;
+      const { lat, lng } = vehiclePosition;
+      // Face along the road ahead when there is a route; otherwise use the GPS heading.
+      let heading = vehiclePosition.heading;
+      {
+        const ahead = currentCoordsRef.current;
+        const cosLat = Math.cos((lat * Math.PI) / 180);
+        for (let i = 0; i < ahead.length; i++) {
+          const dx = (ahead[i][0] - lng) * cosLat * 111320;
+          const dy = (ahead[i][1] - lat) * 111320;
+          if (Math.hypot(dx, dy) > 8) {
+            heading = ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
+            break;
+          }
+        }
+      }
       lastVehicleHeadingRef.current = heading;
       lastVehicleTypeRef.current = vehicleType;
       const typeMap = VEHICLE_IMAGE_MAP[vehicleType || 'economy'] || VEHICLE_IMAGE_MAP.economy;
@@ -373,30 +389,41 @@ export default function DriverMap({
         vehicleAnimRef.current = requestAnimationFrame(step);
       }
 
-      // Trim from the full route only when the vehicle is within 60m.
+      // Eat the route as the vehicle moves: snap to the nearest point on the road SEGMENTS
+      // (never the nearest vertex, which jumps back on long straight roads) and only ever move forward.
       const coords = fullCoordsRef.current;
-      if (coords.length > 0) {
-        let closestIdx = 0;
-        let closestDist = Infinity;
-        for (let i = 0; i < coords.length; i++) {
-          const dLng = coords[i][0] - lng;
-          const dLat = coords[i][1] - lat;
-          const dist = dLng * dLng + dLat * dLat;
-          if (dist < closestDist) {
-            closestDist = dist;
-            closestIdx = i;
-          }
+      if (coords.length > 1) {
+        const cosLat = Math.cos((lat * Math.PI) / 180);
+        const toXY = (c: [number, number]) => ({ x: c[0] * cosLat * 111320, y: c[1] * 111320 });
+        const p = toXY([lng, lat]);
+        const from = Math.max(0, Math.min(routeProgressRef.current, coords.length - 2));
+        let bestSeg = from;
+        let bestT = 0;
+        let bestDist = Infinity;
+        const to = Math.min(coords.length - 1, from + 80); // look ahead only
+        for (let i = from; i < to; i++) {
+          const a0 = toXY(coords[i]);
+          const b0 = toXY(coords[i + 1]);
+          const dx = b0.x - a0.x;
+          const dy = b0.y - a0.y;
+          const len2 = dx * dx + dy * dy;
+          let t = len2 === 0 ? 0 : ((p.x - a0.x) * dx + (p.y - a0.y) * dy) / len2;
+          t = Math.max(0, Math.min(1, t));
+          const d = Math.hypot(a0.x + t * dx - p.x, a0.y + t * dy - p.y);
+          if (d < bestDist) { bestDist = d; bestSeg = i; bestT = t; }
         }
-        const closestDistanceMeters = Math.sqrt(closestDist) * 111320;
-        const trimmed = closestDistanceMeters <= 60 ? coords.slice(closestIdx) : coords;
-        currentCoordsRef.current = trimmed;
-        const src = map.getSource('route-source') as maplibregl.GeoJSONSource | undefined;
-        if (src) {
-          src.setData({
-            type: 'Feature',
-            properties: {},
-            geometry: { type: 'LineString', coordinates: trimmed },
-          });
+        // Only trim when the vehicle is really on the road (GPS drift tolerance 120 m).
+        if (bestDist <= 120) {
+          routeProgressRef.current = bestSeg;
+          const A = coords[bestSeg];
+          const B = coords[bestSeg + 1];
+          const snapped: [number, number] = [A[0] + (B[0] - A[0]) * bestT, A[1] + (B[1] - A[1]) * bestT];
+          const trimmed = [snapped, ...coords.slice(bestSeg + 1)];
+          currentCoordsRef.current = trimmed;
+          const src = map.getSource('route-source') as maplibregl.GeoJSONSource | undefined;
+          if (src) {
+            src.setData({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: trimmed } });
+          }
         }
       }
 

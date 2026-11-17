@@ -1,3 +1,4 @@
+import { readVerificationStatus } from '@/utils/verification';
 import {
   View,
   Text,
@@ -40,7 +41,7 @@ export default function LoginPage() {
       try {
         const driverSnapshot = await getDoc(doc(firestore, 'drivers', user.uid));
         const verificationStatus = driverSnapshot.exists()
-          ? driverSnapshot.data().verificationStatus
+          ? readVerificationStatus(driverSnapshot.data())
           : null;
 
         if (verificationStatus === 'approved') {

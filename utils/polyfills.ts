@@ -42,3 +42,14 @@ if (typeof (Promise as any).allSettled !== 'function') {
     (value) => ({ status: 'fulfilled', value }), (reason) => ({ status: 'rejected', reason }))));
 }
 export {};
+
+// Remove the browser's default focus ring (the gold/yellow outline) from every text box on the
+// web build, in all registration steps. The app's own borders are unchanged.
+if (typeof document !== 'undefined' && !document.getElementById('no-focus-ring')) {
+  const style = document.createElement('style');
+  style.id = 'no-focus-ring';
+  style.textContent =
+    'input, textarea, select, [contenteditable], input:focus, textarea:focus, select:focus, input:focus-visible, textarea:focus-visible ' +
+    '{ outline: none !important; outline-color: transparent !important; box-shadow: none !important; -webkit-tap-highlight-color: transparent; }';
+  document.head.appendChild(style);
+}

@@ -1,8 +1,38 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { ref, onValue, off } from 'firebase/database';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { database, firestore } from '@/config/firebase';
 import { normalizeWorkflow } from '@/utils/workflow';
+import polylineLib from '@mapbox/polyline';
+
+// Metres of road still ahead of the driver along an encoded route (null when not on it).
+function remainingMeters(encoded: string | null, lat: number, lng: number): { remaining: number; total: number } | null {
+  if (!encoded) return null;
+  let pts: number[][];
+  try { pts = polylineLib.decode(encoded); } catch { return null; }
+  if (pts.length < 2) return null;
+  const cos = Math.cos((lat * Math.PI) / 180);
+  const xy = (la: number, ln: number) => ({ x: ln * cos * 111320, y: la * 111320 });
+  const p = xy(lat, lng);
+  let total = 0;
+  const segLen: number[] = [];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = xy(pts[i][0], pts[i][1]); const b = xy(pts[i + 1][0], pts[i + 1][1]);
+    const l = Math.hypot(b.x - a.x, b.y - a.y); segLen.push(l); total += l;
+  }
+  let best = Infinity; let bestSeg = 0; let bestT = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = xy(pts[i][0], pts[i][1]); const b = xy(pts[i + 1][0], pts[i + 1][1]);
+    const dx = b.x - a.x; const dy = b.y - a.y; const l2 = dx * dx + dy * dy;
+    let t = l2 === 0 ? 0 : ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2; t = Math.max(0, Math.min(1, t));
+    const d = Math.hypot(a.x + t * dx - p.x, a.y + t * dy - p.y);
+    if (d < best) { best = d; bestSeg = i; bestT = t; }
+  }
+  if (best > 300) return null; // not on this route
+  let remaining = segLen[bestSeg] * (1 - bestT);
+  for (let i = bestSeg + 1; i < segLen.length; i++) remaining += segLen[i];
+  return { remaining, total };
+}
 
 export interface MarkerDef {
   id: string;
@@ -102,7 +132,7 @@ function orderToTrip(order: any) {
   };
 }
 
-export function useActiveTrip(driverId: string | null, fallbackOrder?: any | null): UseActiveTripResult {
+export function useActiveTrip(driverId: string | null, fallbackOrder?: any | null, driverPos?: { lat: number; lng: number } | null): UseActiveTripResult {
   const [activeTrip, setActiveTrip] = useState<any | null>(null);
   const [liveOrder, setLiveOrder] = useState<any | null>(null);
 
@@ -238,30 +268,57 @@ export function useActiveTrip(driverId: string | null, fallbackOrder?: any | nul
   //   started / picked_up (pickup -> destination) => tripEtaMinutes
   //   all other statuses (arrived, at_store, delivered, completed, none) => null
   let etaMinutes: number | null = null;
+  // The live order document is updated by the backend as the driver moves; the RTDB request
+  // (tripSource) only holds the ETA from the moment the request was sent. Always prefer live.
+  const pickEta = (key: 'driverToPickupEtaMinutes' | 'tripEtaMinutes'): number | null => {
+    const live = Number(liveOrder?.[key]);
+    if (liveOrder?.[key] != null && Number.isFinite(live)) return live;
+    const stale = Number(liveTrip?.[key]);
+    return liveTrip?.[key] != null && Number.isFinite(stale) ? stale : null;
+  };
   if (liveTrip && tripStatus && workflowType) {
     if (workflowType === 'direct_trip') {
       if (tripStatus === 'accepted') {
-        etaMinutes = liveTrip?.driverToPickupEtaMinutes ?? null;
+        etaMinutes = pickEta('driverToPickupEtaMinutes');
       } else if (tripStatus === 'started') {
-        etaMinutes = liveTrip?.tripEtaMinutes ?? null;
+        etaMinutes = pickEta('tripEtaMinutes');
       }
     } else if ((workflowType === 'store_delivery' || workflowType === 'delivery')) {
       if (tripStatus === 'accepted') {
-        etaMinutes = liveTrip?.driverToPickupEtaMinutes ?? null;
+        etaMinutes = pickEta('driverToPickupEtaMinutes');
       } else if (tripStatus === 'picked_up') {
-        etaMinutes = liveTrip?.tripEtaMinutes ?? null;
+        etaMinutes = pickEta('tripEtaMinutes');
       }
     }
   }
 
-  // Recompute fresh each render — never cache a stale timestamp.
-  const arrivalTime =
-    etaMinutes !== null
-      ? new Date(Date.now() + etaMinutes * 60000).toLocaleTimeString([], {
-          hour: 'numeric',
-          minute: '2-digit',
-        })
-      : null;
+  // Live ETA: distance still ahead on the route / the speed the route was planned at.
+  // Falls back to the stored ETA when the driver is not on the route yet.
+  const routeForEta = tripStatus === 'accepted' ? polylineToPickup : activePolyline;
+  const posLat = driverPos?.lat ?? null;
+  const posLng = driverPos?.lng ?? null;
+  const liveEta = useMemo(() => {
+    if (etaMinutes === null || posLat === null || posLng === null) return etaMinutes;
+    const r = remainingMeters(routeForEta, posLat, posLng);
+    if (!r) return etaMinutes;
+    const plannedSeconds = Math.max(60, (etaMinutes || 1) * 60);
+    const speed = Math.min(14, Math.max(4, r.total / plannedSeconds)); // m/s, sane range
+    return Math.max(0, Math.ceil(r.remaining / speed / 60));
+    // Re-evaluate every ~50 m of progress, not on each GPS tick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [etaMinutes, routeForEta, Math.round((posLat ?? 0) * 2000), Math.round((posLng ?? 0) * 2000)]);
+
+  // Only recompute when the ETA itself changes (not on every render), so the card stops jumping.
+  const arrivalTime = useMemo(
+    () =>
+      liveEta !== null
+        ? new Date(Date.now() + liveEta * 60000).toLocaleTimeString([], {
+            hour: 'numeric',
+            minute: '2-digit',
+          })
+        : null,
+    [liveEta],
+  );
 
   return {
     activeTrip,
@@ -275,7 +332,7 @@ export function useActiveTrip(driverId: string | null, fallbackOrder?: any | nul
     markers,
     showPolyline,
     activePolyline,
-    etaMinutes,
+    etaMinutes: liveEta,
     arrivalTime,
   };
 }

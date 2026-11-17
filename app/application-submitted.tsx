@@ -15,7 +15,7 @@ export default function ApplicationSubmitted() {
       <View style={styles.content}>
         <View style={styles.iconContainer}>
           <View style={styles.checkCircle}>
-            <Check color="#BFFF00" size={80} strokeWidth={3} />
+            <Check color="#fff" size={80} strokeWidth={3} />
           </View>
         </View>
 
@@ -52,7 +52,7 @@ const styles = StyleSheet.create({
     width: 160,
     height: 160,
     borderRadius: 80,
-    backgroundColor: '#1a5a1a',
+    backgroundColor: '#B19CD9',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -75,7 +75,7 @@ const styles = StyleSheet.create({
     paddingBottom: Platform.OS === 'ios' ? 40 : 24,
   },
   button: {
-    backgroundColor: '#BFFF00',
+    backgroundColor: '#B19CD9',
     paddingVertical: 18,
     borderRadius: 12,
     alignItems: 'center',

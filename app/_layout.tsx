@@ -1,3 +1,4 @@
+import { readVerificationStatus } from '@/utils/verification';
 import '@/utils/polyfills';
 import { useEffect, useState, useRef } from 'react';
 import { Stack, usePathname } from 'expo-router';
@@ -180,7 +181,7 @@ export default function RootLayout() {
 
     const driverRef = doc(firestore, 'drivers', currentUser.uid);
     const unsubscribe = onSnapshot(driverRef, (snapshot) => {
-      setVerificationStatus(snapshot.exists() ? snapshot.data().verificationStatus ?? null : null);
+      setVerificationStatus(snapshot.exists() ? readVerificationStatus(snapshot.data()) : null);
     }, () => {
       setVerificationStatus(null);
     });
@@ -207,7 +208,6 @@ export default function RootLayout() {
               <Stack.Screen name="step2" />
               <Stack.Screen name="step3" />
               <Stack.Screen name="cyclist-step" />
-              <Stack.Screen name="bicycle-submit" />
               <Stack.Screen name="license-step" />
               <Stack.Screen name="driver-license-instructions" />
               <Stack.Screen name="selfie-with-license-instructions" />

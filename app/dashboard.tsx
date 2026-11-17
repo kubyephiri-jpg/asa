@@ -1,3 +1,4 @@
+import { readVerificationStatus } from '@/utils/verification';
 import React, { useState, useEffect, useRef } from 'react';
 import { registerPlugin } from '@capacitor/core';
 import type { BackgroundGeolocationPlugin } from '@capacitor-community/background-geolocation';
@@ -174,6 +175,8 @@ export default function Dashboard() {
   const router = useRouter();
   const [isOnline, setIsOnline] = useState(false);
   const [isPresenceLoaded, setIsPresenceLoaded] = useState(false);
+  // true only while driver_locations/{uid} really exists in RTDB (the vehicle shows from that moment)
+  const [locationRegistered, setLocationRegistered] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
   const [userStatus, setUserStatus] = useState<'pending' | 'approved' | 'accepted' | 'rejected'>('pending');
   const [registrationCompleted, setRegistrationCompleted] = useState(false);
@@ -224,7 +227,7 @@ export default function Dashboard() {
   activeRideIdRef.current = effectiveRideId;
   activeRideStatusRef.current = effectiveRideStatus;
   const { activeTrip, liveOrder, driverStatus, storeCallable, tripStatus, workflowType, markers, activePolyline, showPolyline, arrivalTime } =
-  useActiveTrip(driverId, activeOrder);
+  useActiveTrip(driverId, activeOrder, vehiclePosition);
   const { callState, formattedTime, startCall } = useCall();
   const { totalEarnings, loading: tripHistoryLoading } = useDriverTripHistory(driverId, 'today');
 
@@ -427,7 +430,7 @@ export default function Dashboard() {
       if (docSnap.exists()) {
         const data = docSnap.data();
         // Set verification status from Firestore
-        const verificationStatus = data.verificationStatus || 'pending';
+        const verificationStatus = readVerificationStatus(data) || 'pending';
         const regCompleted = data.registrationCompleted === true;
 
         setUserStatus(verificationStatus as 'pending' | 'approved' | 'accepted' | 'rejected');
@@ -775,6 +778,26 @@ export default function Dashboard() {
     void stopTracking();
   }, []);
 
+  useEffect(() => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) { setLocationRegistered(false); return; }
+    const locRef = ref(database, `driver_locations/${uid}`);
+    const handler = onValue(locRef, (snap) => setLocationRegistered(snap.exists()), () => setLocationRegistered(false));
+    return () => off(locRef, 'value', handler);
+  }, [isPresenceLoaded, isOnline, userStatus]);
+
+  // Writes driver_locations straight away, the same way drivers_online is written.
+  const writeLocationNow = async (uid: string, latitude: number, longitude: number) => {
+    const geoObject = createGeoFireObject(latitude, longitude);
+    lastLocationWriteRef.current = Date.now();
+    await set(ref(database, `driver_locations/${uid}`), {
+      l: geoObject.l,
+      g: geoObject.g,
+      t: Date.now(),
+      sessionId: sessionIdRef.current,
+    });
+  };
+
   const goOnline = async () => {
     const uid = auth.currentUser?.uid;
     if (!uid || !driverData) return;
@@ -802,8 +825,19 @@ export default function Dashboard() {
       sessionId: sessionIdRef.current,
     });
 
-    // Start the live location watcher right away, in parallel with the one-shot fix below.
+    // Register a location IMMEDIATELY from the best position we already have (current vehicle
+    // position, or the last stored fix) so matching works at once; the live GPS refines it.
     onlineRef.current = true;
+    {
+      const known = vehiclePosition
+        ? { lat: vehiclePosition.lat, lng: vehiclePosition.lng }
+        : (() => { const f = getLocationSnapshot(); return f ? { lat: f.lat, lng: f.lng } : null; })();
+      if (known) {
+        try { await writeLocationNow(uid, known.lat, known.lng); } catch (e) { console.log('[v0] immediate location write failed:', e); }
+      }
+    }
+
+    // Start the live location watcher right away, in parallel with the one-shot fix below.
     void startTracking();
 
     let coords: any = await Promise.race([
@@ -927,8 +961,9 @@ export default function Dashboard() {
   const gesture = Gesture.Pan()
     .runOnJS(true)
     .enabled(userStatus === 'approved' && registrationCompleted)
-    .activeOffsetX([-10, 10])
-    .failOffsetY([-15, 15])
+    .hitSlop({ top: 20, bottom: 20, left: 12, right: 12 })
+    .activeOffsetX([-5, 5])
+    .failOffsetY([-60, 60])
     .onStart(() => {
       isDraggingRef.current = true;
       gestureStartedOnlineRef.current = onlineRef.current;
@@ -963,8 +998,9 @@ export default function Dashboard() {
 
   // Panel drag gesture for bottom sheet
   const panelGesture = Gesture.Pan()
-    .activeOffsetY([-10, 10])
-    .failOffsetX([-15, 15])
+    .hitSlop({ top: 16, bottom: 24, left: 0, right: 0 })
+    .activeOffsetY([-5, 5])
+    .failOffsetX([-40, 40])
     .onStart(() => {
       savedPanelY.current = panelYRef.current;
     })
@@ -1127,7 +1163,7 @@ if (activeTab === 'settings') {
         <DriverMap
           polyline={showPolyline ? activePolyline || undefined : undefined}
           vehiclePosition={vehiclePosition || undefined}
-          showVehicle={isOnline}
+          showVehicle={isOnline && locationRegistered}
           vehicleType={vehicleType}
           vehicleColor={vehicleColor}
           markers={displayedMarkers}
@@ -1467,7 +1503,7 @@ height: 56,
   },
   panelHandleArea: {
     width: '100%',
-    paddingVertical: 12,
+    paddingVertical: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },

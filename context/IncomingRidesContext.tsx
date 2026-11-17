@@ -1,3 +1,4 @@
+import { readVerificationStatus } from '@/utils/verification';
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { normalizeWorkflow } from '@/utils/workflow';
 import { ref, onValue, off } from 'firebase/database';
@@ -105,7 +106,7 @@ export function TripRequestProvider({ children }: { children: ReactNode }) {
     const driverRef = doc(firestore, 'drivers', driverUid);
     const unsubscribe = onSnapshot(driverRef, (snapshot) => {
       setVerificationStatus(
-        snapshot.exists() ? snapshot.data().verificationStatus ?? null : null,
+        snapshot.exists() ? readVerificationStatus(snapshot.data()) : null,
       );
     }, () => {
       setVerificationStatus(null);
