@@ -53,3 +53,27 @@ if (typeof document !== 'undefined' && !document.getElementById('no-focus-ring')
     '{ outline: none !important; outline-color: transparent !important; box-shadow: none !important; -webkit-tap-highlight-color: transparent; }';
   document.head.appendChild(style);
 }
+
+// Android WebView draws its own grey "play" icon on any <video> until the first frame is ready.
+// Give every video a transparent poster and hide the built-in controls so only the video shows.
+if (typeof document !== 'undefined' && !document.getElementById('no-video-play-icon')) {
+  const POSTER = '';
+  const fix = (v: HTMLVideoElement) => {
+    if (!v.getAttribute('poster')) v.setAttribute('poster', POSTER);
+    v.removeAttribute('controls');
+  };
+  const style = document.createElement('style');
+  style.id = 'no-video-play-icon';
+  style.textContent =
+    'video::-webkit-media-controls, video::-webkit-media-controls-panel, video::-webkit-media-controls-play-button, ' +
+    'video::-webkit-media-controls-start-playback-button, video::-webkit-media-controls-overlay-play-button, ' +
+    'video::-webkit-media-controls-overlay-enclosure { display: none !important; opacity: 0 !important; -webkit-appearance: none; }';
+  document.head.appendChild(style);
+  document.querySelectorAll('video').forEach((v) => fix(v as HTMLVideoElement));
+  new MutationObserver((muts) => {
+    muts.forEach((m) => m.addedNodes.forEach((n) => {
+      if (n instanceof HTMLVideoElement) fix(n);
+      else if (n instanceof HTMLElement) n.querySelectorAll('video').forEach((v) => fix(v as HTMLVideoElement));
+    }));
+  }).observe(document.documentElement, { childList: true, subtree: true });
+}

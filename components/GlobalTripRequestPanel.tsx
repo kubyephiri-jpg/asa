@@ -31,6 +31,21 @@ const PANEL_EXPANDED_Y = 0;
 // Minimized: only handle bar and small portion visible
 const PANEL_MINIMIZED_Y = -(PANEL_HEIGHT - HANDLE_HEIGHT - STATUS_BAR_HEIGHT);
 
+
+// The trip type can arrive empty (restored orders, older requests). Without a type no buttons were
+// drawn at all. Work it out from the status first, then from the order data, and never return nothing.
+const resolveWorkflow = (req: { workflowType?: string | null; status?: string; data?: any } | null | undefined): 'direct_trip' | 'store_delivery' => {
+  if (!req) return 'direct_trip';
+  const st = req.status;
+  if (st === 'at_store' || st === 'picked_up' || st === 'delivered') return 'store_delivery';
+  const w = normalizeWorkflow(req.workflowType as any);
+  if (w === 'store_delivery') return 'store_delivery';
+  if (w === 'direct_trip') return 'direct_trip';
+  const d = req.data || {};
+  if (d.storeId || d.storeName || d.storeAddress || d.orderType === 'delivery') return 'store_delivery';
+  return 'direct_trip';
+};
+
 // RTDB Trip Request structure
 interface TripRequest {
   orderId: string;
@@ -591,7 +606,8 @@ export default function GlobalTripRequestPanel() {
   const renderButtons = () => {
     if (!currentRequest) return null;
 
-    const { workflowType, status } = currentRequest;
+    const workflowType = resolveWorkflow(currentRequest);
+    const { status } = currentRequest;
 
     // DIRECT TRIP flow: incoming_request -> accepted -> arrived -> started -> completed
     if (workflowType === 'direct_trip') {
@@ -799,7 +815,7 @@ export default function GlobalTripRequestPanel() {
   const getWorkflowIcon = () => {
     if (!currentRequest) return <Car color="#333" size={20} />;
     
-    if (isStoreWorkflow(currentRequest.workflowType)) {
+    if (resolveWorkflow(currentRequest) === 'store_delivery') {
       return <Package color="#FF6B00" size={20} />;
     }
     
