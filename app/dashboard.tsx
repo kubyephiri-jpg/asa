@@ -157,6 +157,7 @@ import { useAudioPlayer } from 'expo-audio';
 import messageSound from '@/assets/sounds/message.mp3';
 import { installWebAudioUnlock, playAlertSound, prepareAlertAudio } from '@/utils/audioAlerts';
 import { createGeoFireObject } from '@/utils/geofire';
+import { resolveVehicleIconName } from '@/utils/vehicleIcon';
 import { distanceMeters, bearingDegrees } from '@/utils/geo';
 import { getUnreadCount, listenForClientMessages, autoDeleteReadMessages, watchRideStatusForCleanup } from '@/utils/chat';
 import TripsHistory from '@/components/TripsHistory';
@@ -205,6 +206,9 @@ export default function Dashboard() {
   const [driverId, setDriverId] = useState<string | null>(null);
   const [vehicleType, setVehicleType] = useState<string>('economy');
   const [vehicleColor, setVehicleColor] = useState<string>('b');
+  // exact picture for this driver (type + colour + cargo + brand), same rule as the client and backend
+  const [vehicleIcon, setVehicleIcon] = useState<string>('');
+  const vehicleIconRef = useRef<string>('');
   const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [vehiclePosition, setVehiclePosition] = useState<{ lat: number; lng: number; heading: number } | null>(null);
   const stableHeadingRef = useRef(0);
@@ -406,7 +410,9 @@ export default function Dashboard() {
   const PANEL_TOTAL_HEIGHT = 380; // Total panel height
   const NAV_HEIGHT = 85;
   // When collapsed, panel should hide behind nav, only showing scheduled card (~100px visible)
-  const PANEL_COLLAPSED_OFFSET = PANEL_TOTAL_HEIGHT - NAV_HEIGHT - 100; // How much to push down when collapsed
+  // The panel sits ABOVE the nav bar, so it only needs to slide down by (height - the part we keep visible).
+  // Keep the handle + 'scheduled requests' card (~105) visible when collapsed.
+  const PANEL_COLLAPSED_OFFSET = PANEL_TOTAL_HEIGHT - 105;
   const PANEL_EXPANDED_OFFSET = 0; // When expanded, no offset
   const panelY = useRef(new Animated.Value(PANEL_COLLAPSED_OFFSET)).current; // Start collapsed
   const savedPanelY = useRef(PANEL_COLLAPSED_OFFSET);
@@ -469,6 +475,14 @@ export default function Dashboard() {
           data.category ||
           'economy';
         setVehicleType(String(resolvedVehicleType).toLowerCase());
+        {
+          const iconName = resolveVehicleIconName({ ...(data.vehicle || {}), color: data.vehicle?.color ?? data.vehicleColor, type: data.vehicle?.type ?? data.vehicleType });
+          vehicleIconRef.current = iconName;
+          setVehicleIcon(iconName);
+          // if already online, publish it so the client map shows the right picture
+          const u = auth.currentUser?.uid;
+          if (u && onlineRef.current) void update(ref(database, `drivers_online/${u}`), { vehicleIcon: iconName }).catch(() => {});
+        }
         const rawColor = String(data.vehicle?.color || data.vehicleColor || 'black').toLowerCase();
         setVehicleColor(({black:'b',blue:'bl',red:'r',gray:'g',grey:'g',white:'w'} as any)[rawColor] || rawColor);
       }
@@ -849,6 +863,7 @@ export default function Dashboard() {
       isBusy: false,
       lastUpdated: Date.now(),
       sessionId: sessionIdRef.current,
+      ...(vehicleIconRef.current ? { vehicleIcon: vehicleIconRef.current } : {}),
     });
 
     // Register a location IMMEDIATELY from the best position we already have (current vehicle
@@ -909,6 +924,7 @@ export default function Dashboard() {
       isBusy: false,
       lastUpdated: Date.now(),
       sessionId: sessionIdRef.current,
+      ...(vehicleIconRef.current ? { vehicleIcon: vehicleIconRef.current } : {}),
     });
 
     setIsOnline(true);
@@ -1192,6 +1208,7 @@ if (activeTab === 'settings') {
           showVehicle={isOnline && locationRegistered}
           vehicleType={vehicleType}
           vehicleColor={vehicleColor}
+          vehicleIcon={vehicleIcon}
           markers={displayedMarkers}
           arrivalTime={arrivalTime}
           arrivalPosition={arrivalPosition}
@@ -1516,7 +1533,7 @@ height: 56,
     bottom: 85, // Position above nav bar
     left: 0,
     right: 0,
-    height: 300, // Total height of panel content
+    height: 380, // Must match PANEL_TOTAL_HEIGHT: handle + card + stats + the slide toggle all fit
     backgroundColor: '#F5F5F5',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
@@ -1529,7 +1546,7 @@ height: 56,
   },
   panelHandleArea: {
     width: '100%',
-    paddingVertical: 22,
+    paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1542,7 +1559,7 @@ height: 56,
   panelContent: {
     flex: 1,
     paddingHorizontal: 16,
-    paddingBottom: 100, // Extra space for content behind bottom nav
+    paddingBottom: 16,
   },
 
   // Scheduled requests card

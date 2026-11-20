@@ -31,6 +31,18 @@ const VEHICLE_IMAGE_MAP: Record<string, Record<string, string>> = {
 };
 const DEFAULT_VEHICLE = VEHICLE_IMAGE_MAP.economy.b;
 
+// picture name (from utils/vehicleIcon) -> image, e.g. 'abicyclebl' = blue bicycle
+const ICON_BY_NAME: Record<string, string> = {
+  abicycleb: abicyclebDataUri, abicyclebl: abicycleblDataUri, abicycler: abicyclerDataUri,
+  amotorbikeb: amotorbikebDataUri, amotorbikebl: amotorbikeblDataUri, amotorbiker: amotorbikerDataUri,
+  abusb: abusbDataUri, abusbl: abusblDataUri, abusg: abusgDataUri, abusw: abuswDataUri,
+  acarb: acarbDataUri, acarbl: acarblDataUri, acarg: acargDataUri, acarr: acarrDataUri, acarw: acarwDataUri,
+  aclosedb: aclosedbDataUri, aclosedbl: aclosedblDataUri, aclosedg: aclosedgDataUri, aclosedr: aclosedrDataUri, aclosedw: aclosedwDataUri,
+  aopenb: aopenbDataUri, aopenbl: aopenblDataUri, aopeng: aopengDataUri, aopenr: aopenrDataUri, aopenw: aopenwDataUri,
+  atruckb: atruckbDataUri, atruckbl: atruckblDataUri, atruckg: atruckgDataUri, atruckr: atruckrDataUri, atruckw: atruckwDataUri,
+  aletwende1: acargDataUri, // no separate Aletwende picture bundled in this app
+};
+
 export interface MapMarker {
   id: string;
   type: string; // pickup | dropoff | stop | store
@@ -44,6 +56,7 @@ interface DriverMapProps {
   vehiclePosition?: { lat: number; lng: number; heading: number };
   vehicleType?: string;
   vehicleColor?: string;
+  vehicleIcon?: string;
   markers?: MapMarker[];
   arrivalTime?: string | null;
   arrivalPosition?: { lat: number; lng: number } | null;
@@ -83,6 +96,7 @@ export default function DriverMap({
   vehiclePosition,
   vehicleType,
   vehicleColor,
+  vehicleIcon,
   markers,
   arrivalTime,
   arrivalPosition,
@@ -246,10 +260,38 @@ export default function DriverMap({
         currentCoordsRef.current = coords;
         routeProgressRef.current = 0;
 
+        // If the same route is sent again while the vehicle is already on it, draw it already
+        // trimmed from the vehicle forward. Otherwise the part behind the vehicle flashes back
+        // until the next GPS update.
+        let drawCoords = coords;
+        const here = lastVehicleLatLngRef.current;
+        if (here && coords.length > 1) {
+          const cosLat = Math.cos((here.lat * Math.PI) / 180);
+          const toXY = (c: [number, number]) => ({ x: c[0] * cosLat * 111320, y: c[1] * 111320 });
+          const p = toXY([here.lng, here.lat]);
+          let bestSeg = 0, bestT = 0, bestDist = Infinity;
+          for (let i = 0; i < coords.length - 1; i++) {
+            const a0 = toXY(coords[i]);
+            const b0 = toXY(coords[i + 1]);
+            const dx = b0.x - a0.x, dy = b0.y - a0.y;
+            const len2 = dx * dx + dy * dy;
+            let t = len2 === 0 ? 0 : ((p.x - a0.x) * dx + (p.y - a0.y) * dy) / len2;
+            t = Math.max(0, Math.min(1, t));
+            const d = Math.hypot(a0.x + t * dx - p.x, a0.y + t * dy - p.y);
+            if (d < bestDist) { bestDist = d; bestSeg = i; bestT = t; }
+          }
+          if (bestDist <= 120) {
+            const A = coords[bestSeg], B = coords[bestSeg + 1];
+            drawCoords = [[A[0] + (B[0] - A[0]) * bestT, A[1] + (B[1] - A[1]) * bestT], ...coords.slice(bestSeg + 1)];
+            routeProgressRef.current = bestSeg;
+            currentCoordsRef.current = drawCoords;
+          }
+        }
+
         const data: GeoJSON.Feature = {
           type: 'Feature',
           properties: {},
-          geometry: { type: 'LineString', coordinates: coords },
+          geometry: { type: 'LineString', coordinates: drawCoords },
         };
 
         const src = map.getSource('route-source') as maplibregl.GeoJSONSource | undefined;
@@ -319,7 +361,7 @@ export default function DriverMap({
       lastVehicleHeadingRef.current = heading;
       lastVehicleTypeRef.current = vehicleType;
       const typeMap = VEHICLE_IMAGE_MAP[vehicleType || 'economy'] || VEHICLE_IMAGE_MAP.economy;
-    const imgUrl = typeMap[vehicleColor || 'b'] || typeMap.b || DEFAULT_VEHICLE;
+    const imgUrl = (vehicleIcon && ICON_BY_NAME[vehicleIcon]) || typeMap[vehicleColor || 'b'] || typeMap.b || DEFAULT_VEHICLE;
 
       // Track latest position for the camera logic.
       lastVehicleLatLngRef.current = { lat, lng };
@@ -437,7 +479,7 @@ export default function DriverMap({
       map.once('load', run);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vehiclePosition, vehicleType, vehicleColor]);
+  }, [vehiclePosition, vehicleType, vehicleColor, vehicleIcon]);
 
   // ---- Diff + render markers ----
   useEffect(() => {
