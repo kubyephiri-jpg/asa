@@ -86,7 +86,9 @@ const watchLocation = async (callback: (coords: { latitude: number; longitude: n
         backgroundTitle: 'Aletwende Driver',
         requestPermissions: true,
         stale: false,
-        distanceFilter: 10,
+        // 0 = the native service reports a position about every second even when the phone is not
+        // moving. The old value (10 m) meant a parked/stationary driver produced NO updates at all.
+        distanceFilter: 0,
       },
       (location, error) => {
         if (error) {
@@ -368,7 +370,9 @@ export default function Dashboard() {
       if (!onlineRef.current || !locationSubscriptionRef.current) return;
       const fix = getLocationSnapshot();
       const now = Date.now();
-      if (!fix || now < fix.ts || now - fix.ts > 300_000) return;
+      // Keep refreshing 't' while we hold a fix from the last 15 minutes. (It used to stop after 5
+      // minutes without movement, which made a parked driver look stale to the backend.)
+      if (!fix || now - fix.ts > 900_000) return;
       const geoObject = createGeoFireObject(fix.lat, fix.lng);
       lastLocationWriteRef.current = now;
       void set(ref(database, `driver_locations/${uid}`), {
@@ -648,6 +652,28 @@ export default function Dashboard() {
         } else if (Number.isFinite(heading) && heading >= 0 && speed > 1.5) {
           const headingDelta = Math.abs(((heading - stableHeadingRef.current + 540) % 360) - 180);
           if (headingDelta <= 120 || distance >= 15) nextHeading = heading;
+        }
+        // Standing still: the native service keeps calling us every second. Do not re-render the app
+        // each time; just refresh driver_locations every 8 s so the backend sees a fresh timestamp.
+        // This runs from the native callback, so it still works when the screen is off and
+        // JavaScript timers (the heartbeat) are throttled by Android.
+        if (previous && distance < 5) {
+          const sinceWrite = Date.now() - lastLocationWriteRef.current;
+          if (sinceWrite < 8000) return;
+          lastLocationWriteRef.current = Date.now();
+          const still = createGeoFireObject(latitude, longitude);
+          setLocation(latitude, longitude, stableHeadingRef.current, Date.now());
+          try {
+            await set(ref(database, `driver_locations/${uid}`), {
+              l: still.l,
+              g: still.g,
+              t: Date.now(),
+              sessionId: sessionIdRef.current,
+            });
+          } catch (error) {
+            console.log('[v0] Stationary location refresh failed:', error);
+          }
+          return;
         }
         if (distance >= 5) lastAcceptedPositionRef.current = { latitude, longitude };
         stableHeadingRef.current = nextHeading;
