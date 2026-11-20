@@ -158,6 +158,8 @@ import messageSound from '@/assets/sounds/message.mp3';
 import { installWebAudioUnlock, playAlertSound, prepareAlertAudio } from '@/utils/audioAlerts';
 import { createGeoFireObject } from '@/utils/geofire';
 import { resolveVehicleIconName } from '@/utils/vehicleIcon';
+import { API_BASE } from '@/services/callApi';
+import type { DemandZone } from '@/components/DriverMap.web';
 import { distanceMeters, bearingDegrees } from '@/utils/geo';
 import { getUnreadCount, listenForClientMessages, autoDeleteReadMessages, watchRideStatusForCleanup } from '@/utils/chat';
 import TripsHistory from '@/components/TripsHistory';
@@ -209,6 +211,10 @@ export default function Dashboard() {
   // exact picture for this driver (type + colour + cargo + brand), same rule as the client and backend
   const [vehicleIcon, setVehicleIcon] = useState<string>('');
   const vehicleIconRef = useRef<string>('');
+  // Demand map (like Yango): busy areas shaded red / yellow / green with the share of requests
+  const [showDemand, setShowDemand] = useState(false);
+  const [demandZones, setDemandZones] = useState<DemandZone[]>([]);
+  const [demandLoading, setDemandLoading] = useState(false);
   const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [vehiclePosition, setVehiclePosition] = useState<{ lat: number; lng: number; heading: number } | null>(null);
   const stableHeadingRef = useRef(0);
@@ -1080,6 +1086,27 @@ export default function Dashboard() {
 
   gesture.blocksExternalGesture(panelGesture);
 
+  // Load demand zones while the Demand map is switched on (refresh every 30 s).
+  useEffect(() => {
+    if (!showDemand) { setDemandZones([]); return; }
+    let stopped = false;
+    const services: string[] = Array.isArray(driverData?.vehicle?.services) ? driverData.vehicle.services : [];
+    const rides = services.includes('ride');
+    const delivers = services.some((x) => x === 'delivery' || x === 'courier' || x === 'delivery_truck');
+    const type = rides && !delivers ? 'ride' : delivers && !rides ? 'delivery' : 'all';
+    const load = async () => {
+      try {
+        setDemandLoading(true);
+        const r = await fetch(`${API_BASE}/demandZones?type=${type}`);
+        const j = await r.json();
+        if (!stopped && Array.isArray(j?.zones)) setDemandZones(j.zones);
+      } catch { /* keep the last list */ } finally { if (!stopped) setDemandLoading(false); }
+    };
+    void load();
+    const timer = setInterval(load, 30000);
+    return () => { stopped = true; clearInterval(timer); };
+  }, [showDemand, driverData?.vehicle?.services]);
+
   // Keep panelYRef synced with the real animated value via the public API.
   useEffect(() => {
     const id = panelY.addListener((state) => {
@@ -1213,7 +1240,19 @@ if (activeTab === 'settings') {
           arrivalTime={arrivalTime}
           arrivalPosition={arrivalPosition}
           hasActiveTrip={hasActiveTrip}
+          zones={showDemand ? demandZones : undefined}
         />
+        {!hasActiveTrip && (
+          <TouchableOpacity
+            onPress={() => setShowDemand((v) => !v)}
+            activeOpacity={0.85}
+            style={{ position: 'absolute', top: 56, right: 14, zIndex: 20, backgroundColor: showDemand ? '#5B2EFF' : '#ffffff', borderRadius: 22, paddingHorizontal: 14, paddingVertical: 9, elevation: 6, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } }}
+          >
+            <Text style={{ color: showDemand ? '#fff' : '#18201b', fontWeight: '700', fontSize: 13 }}>
+              {showDemand ? (demandLoading && demandZones.length === 0 ? 'Loading…' : 'Hide demand') : 'Busy areas'}
+            </Text>
+          </TouchableOpacity>
+        )}
         {isOnline && locationPermissionDenied && (
           <View style={{ position: 'absolute', top: 18, left: 16, right: 16, padding: 10, borderRadius: 8, backgroundColor: 'rgba(255, 248, 220, 0.96)' }}>
             <Text style={{ color: '#765500', textAlign: 'center' }}>Location permission is unavailable. Enable it to share your live position.</Text>

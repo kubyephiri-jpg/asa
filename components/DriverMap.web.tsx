@@ -31,6 +31,23 @@ const VEHICLE_IMAGE_MAP: Record<string, Record<string, string>> = {
 };
 const DEFAULT_VEHICLE = VEHICLE_IMAGE_MAP.economy.b;
 
+export interface DemandZone {
+  id: string; name: string; lat: number; lng: number; radiusM: number;
+  percent: number; level: 'high' | 'medium' | 'low'; color: string;
+}
+
+// Circle as a polygon (works on every WebView, no extra plugin).
+const circlePolygon = (lat: number, lng: number, radiusM: number, steps = 48): [number, number][] => {
+  const out: [number, number][] = [];
+  const dLat = radiusM / 111320;
+  const dLng = radiusM / (111320 * Math.cos((lat * Math.PI) / 180));
+  for (let i = 0; i <= steps; i++) {
+    const a = (i / steps) * 2 * Math.PI;
+    out.push([lng + dLng * Math.cos(a), lat + dLat * Math.sin(a)]);
+  }
+  return out;
+};
+
 // picture name (from utils/vehicleIcon) -> image, e.g. 'abicyclebl' = blue bicycle
 const ICON_BY_NAME: Record<string, string> = {
   abicycleb: abicyclebDataUri, abicyclebl: abicycleblDataUri, abicycler: abicyclerDataUri,
@@ -57,6 +74,7 @@ interface DriverMapProps {
   vehicleType?: string;
   vehicleColor?: string;
   vehicleIcon?: string;
+  zones?: DemandZone[];
   markers?: MapMarker[];
   arrivalTime?: string | null;
   arrivalPosition?: { lat: number; lng: number } | null;
@@ -97,6 +115,7 @@ export default function DriverMap({
   vehicleType,
   vehicleColor,
   vehicleIcon,
+  zones,
   markers,
   arrivalTime,
   arrivalPosition,
@@ -480,6 +499,44 @@ export default function DriverMap({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vehiclePosition, vehicleType, vehicleColor, vehicleIcon]);
+
+  // ---- Demand zones: shaded areas + "Name 7%" labels (red = busiest, yellow = medium, green = quiet) ----
+  const zoneLabelsRef = useRef<maplibregl.Marker[]>([]);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const apply = () => {
+      zoneLabelsRef.current.forEach((m) => m.remove());
+      zoneLabelsRef.current = [];
+      const list = zones || [];
+      const data: GeoJSON.FeatureCollection = {
+        type: 'FeatureCollection',
+        features: list.map((z) => ({
+          type: 'Feature',
+          properties: { color: z.color },
+          geometry: { type: 'Polygon', coordinates: [circlePolygon(z.lat, z.lng, z.radiusM)] },
+        })),
+      };
+      const src = map.getSource('zones-source') as maplibregl.GeoJSONSource | undefined;
+      if (src) {
+        src.setData(data);
+      } else if (list.length) {
+        map.addSource('zones-source', { type: 'geojson', data });
+        const before = map.getLayer('route-layer') ? 'route-layer' : undefined;
+        map.addLayer({ id: 'zones-fill', type: 'fill', source: 'zones-source', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.28 } }, before);
+        map.addLayer({ id: 'zones-line', type: 'line', source: 'zones-source', paint: { 'line-color': ['get', 'color'], 'line-width': 1.5, 'line-opacity': 0.7 } }, before);
+      }
+      list.forEach((z) => {
+        const el = document.createElement('div');
+        el.style.cssText = 'pointer-events:none;text-align:center;font-family:sans-serif;line-height:1.15;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff;';
+        el.innerHTML = `<div style="font-size:12px;font-weight:700;color:#222">${z.name.replace(/</g, '&lt;')}</div><div style="font-size:13px;font-weight:800;color:${z.color}">${z.percent}%</div>`;
+        zoneLabelsRef.current.push(new maplibregl.Marker({ element: el }).setLngLat([z.lng, z.lat]).addTo(map));
+      });
+    };
+    if (isReadyRef.current) apply(); else map.once('load', apply);
+    return () => { /* labels are replaced on the next run */ };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zones]);
 
   // ---- Diff + render markers ----
   useEffect(() => {
