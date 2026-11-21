@@ -152,6 +152,8 @@ export default function DriverMap({
   const didInitialCenterRef = useRef(false);
   const lastUserInteractionRef = useRef(0);
   const hasActiveTripRef = useRef(false);
+  const zonesActiveRef = useRef(false);
+  const zonesFittedRef = useRef(false);
 
   // Keep the trip-active flag in a ref the idle timer can read. Reset the idle
   // clock on entering a trip so we don't recenter the instant it ends.
@@ -243,6 +245,7 @@ export default function DriverMap({
     // Idle auto-recenter: no active trip + 20s without interaction -> ease back.
     const idleTimer = setInterval(() => {
       if (hasActiveTripRef.current) return;
+      if (zonesActiveRef.current) return; // demand map is open: do not pull the camera back
       if (!didInitialCenterRef.current || !lastVehicleLatLngRef.current) return;
       if (Date.now() - lastUserInteractionRef.current >= IDLE_RECENTER_MS) {
         lastUserInteractionRef.current = Date.now();
@@ -534,6 +537,29 @@ export default function DriverMap({
       });
     };
     if (isReadyRef.current) apply(); else map.once('load', apply);
+
+    // First time busy areas appear: zoom OUT so the whole mapped area (and the driver) is visible.
+    const list = zones || [];
+    zonesActiveRef.current = list.length > 0;
+    if (list.length === 0) {
+      zonesFittedRef.current = false;
+    } else if (!zonesFittedRef.current) {
+      zonesFittedRef.current = true;
+      let minLat = 90, maxLat = -90, minLng = 180, maxLng = -180;
+      const grow = (lat: number, lng: number, rM = 0) => {
+        const dLat = rM / 111320;
+        const dLng = rM / (111320 * Math.cos((lat * Math.PI) / 180));
+        minLat = Math.min(minLat, lat - dLat); maxLat = Math.max(maxLat, lat + dLat);
+        minLng = Math.min(minLng, lng - dLng); maxLng = Math.max(maxLng, lng + dLng);
+      };
+      list.forEach((z) => grow(z.lat, z.lng, z.radiusM));
+      if (lastVehicleLatLngRef.current) grow(lastVehicleLatLngRef.current.lat, lastVehicleLatLngRef.current.lng, 300);
+      const doFit = () => {
+        lastUserInteractionRef.current = Date.now();
+        map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: { top: 120, bottom: 320, left: 60, right: 70 }, duration: 900, maxZoom: 14 });
+      };
+      if (isReadyRef.current) doFit(); else map.once('load', doFit);
+    }
     return () => { /* labels are replaced on the next run */ };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zones]);
@@ -642,5 +668,19 @@ export default function DriverMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [arrivalTime, arrivalPosition?.lat, arrivalPosition?.lng]);
 
-  return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />;
+  const btn: React.CSSProperties = {
+    width: 44, height: 44, borderRadius: 12, border: 'none', background: '#ffffff', color: '#18201b',
+    fontSize: 26, fontWeight: 600, lineHeight: '44px', padding: 0, cursor: 'pointer',
+    boxShadow: '0 2px 6px rgba(0,0,0,0.25)', display: 'block',
+  };
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+      {/* zoom in / out, right side like Uber and Yango */}
+      <div style={{ position: 'absolute', right: 12, top: '38%', display: 'flex', flexDirection: 'column', gap: 8, zIndex: 5 }}>
+        <button type="button" aria-label="Zoom in" style={btn} onClick={() => { lastUserInteractionRef.current = Date.now(); mapRef.current?.zoomIn({ duration: 250 }); }}>+</button>
+        <button type="button" aria-label="Zoom out" style={btn} onClick={() => { lastUserInteractionRef.current = Date.now(); mapRef.current?.zoomOut({ duration: 250 }); }}>−</button>
+      </div>
+    </div>
+  );
 }

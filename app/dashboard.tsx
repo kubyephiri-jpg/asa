@@ -144,7 +144,8 @@ const watchLocation = async (callback: (coords: { latitude: number; longitude: n
 };
 import { ref, update, onValue, off, remove, set } from 'firebase/database';
 import { clearDriverPresence } from '@/utils/driverPresence';
-import { Home, Mail, Clock, Settings, Phone } from 'lucide-react-native';
+import { Home, Mail, Clock, Settings, Phone, Flame, Wallet } from 'lucide-react-native';
+import SidePanel from '@/components/SidePanel';
 import { useCall } from '@/context/CallContext';
 import ChatPanel from '@/components/ChatPanel';
 import InboxPanel from '@/components/InboxPanel';
@@ -215,6 +216,14 @@ export default function Dashboard() {
   const [showDemand, setShowDemand] = useState(false);
   const [demandZones, setDemandZones] = useState<DemandZone[]>([]);
   const [demandLoading, setDemandLoading] = useState(false);
+  // Float level like a battery: balance / the amount of the last top-up (or K200 until we know)
+  const floatPercent: number | null = (() => {
+    const f = driverData?.float;
+    const bal = Number(f?.balance);
+    if (!f || !Number.isFinite(bal)) return null;
+    const ref = Number(f.reference) > 0 ? Number(f.reference) : 200;
+    return Math.max(0, Math.min(100, Math.round((bal / ref) * 100)));
+  })();
   const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [vehiclePosition, setVehiclePosition] = useState<{ lat: number; lng: number; heading: number } | null>(null);
   const stableHeadingRef = useRef(0);
@@ -1242,17 +1251,28 @@ if (activeTab === 'settings') {
           hasActiveTrip={hasActiveTrip}
           zones={showDemand ? demandZones : undefined}
         />
-        {!hasActiveTrip && (
-          <TouchableOpacity
-            onPress={() => setShowDemand((v) => !v)}
-            activeOpacity={0.85}
-            style={{ position: 'absolute', top: 56, right: 14, zIndex: 20, backgroundColor: showDemand ? '#5B2EFF' : '#ffffff', borderRadius: 22, paddingHorizontal: 14, paddingVertical: 9, elevation: 6, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } }}
-          >
-            <Text style={{ color: showDemand ? '#fff' : '#18201b', fontWeight: '700', fontSize: 13 }}>
-              {showDemand ? (demandLoading && demandZones.length === 0 ? 'Loading…' : 'Hide demand') : 'Busy areas'}
-            </Text>
-          </TouchableOpacity>
-        )}
+        <SidePanel
+          items={[
+            ...(!hasActiveTrip
+              ? [{
+                  key: 'demand',
+                  label: showDemand ? 'Hide demand' : 'Demand',
+                  active: showDemand,
+                  badge: showDemand && demandLoading && demandZones.length === 0 ? '…' : undefined,
+                  icon: <Flame size={26} color={showDemand ? '#5B2EFF' : '#18201b'} />,
+                  onPress: () => setShowDemand((v) => !v),
+                }]
+              : []),
+            {
+              key: 'float',
+              label: 'Float',
+              badge: floatPercent == null ? '–' : `${floatPercent}%`,
+              badgeColor: floatPercent == null ? '#6B7280' : floatPercent > 40 ? '#2E7D32' : floatPercent > 15 ? '#F9A825' : '#E53935',
+              icon: <Wallet size={26} color="#18201b" />,
+              onPress: () => Alert.alert('Float wallet', 'Your float wallet is being set up. You will top up with mobile money or bank here soon.'),
+            },
+          ]}
+        />
         {isOnline && locationPermissionDenied && (
           <View style={{ position: 'absolute', top: 18, left: 16, right: 16, padding: 10, borderRadius: 8, backgroundColor: 'rgba(255, 248, 220, 0.96)' }}>
             <Text style={{ color: '#765500', textAlign: 'center' }}>Location permission is unavailable. Enable it to share your live position.</Text>
